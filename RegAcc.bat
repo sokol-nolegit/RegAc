@@ -8,7 +8,7 @@ if %errorLevel% neq 0 (
     exit /b
 )
 
-set "LOCAL_VERSION=1.1.0"
+set "LOCAL_VERSION=1.1.2"
 title EXBO TOKEN MANAGER v!LOCAL_VERSION!
 
 set REGISTRY_PATH_EXBO=HKCU\SOFTWARE\EXBO
@@ -116,15 +116,13 @@ cls
 echo :: Saved accounts list:
 echo ----------------------------------------------------
 set "found=0"
-for /f "tokens=1,2*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul') do (
-    set "vname=%%A"
-    if "!vname:~0,11!"=="SavedValue_" (
-        set "found=1"
-        set "raw_data=%%C"
-        
-        for /f "tokens=1,2* delims=," %%X in ("!raw_data!") do (
-            echo Name: %%X ^| Note: %%Z
-        )
+for /f "tokens=3*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul ^| findstr /I "SavedValue_"') do (
+    set "found=1"
+    set "raw_data=%%A %%B"
+    if "%%B"=="" set "raw_data=%%A"
+    
+    for /f "tokens=1,2* delims=," %%X in ("!raw_data!") do (
+        echo Name: %%X ^| Note: %%Z
     )
 )
 if "!found!"=="0" call :PrintYellow "Database is empty."
@@ -139,16 +137,15 @@ echo :: Select account to switch (Insert token):
 echo.
 
 set "count=0"
-for /f "tokens=1,2*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul') do (
-    set "vname=%%A"
-    if "!vname:~0,11!"=="SavedValue_" (
-        set /a count+=1
-        set "raw_data=%%C"
-        for /f "tokens=1,2* delims=," %%X in ("!raw_data!") do (
-            echo   !count!. %%X ^(Note: %%Z^)
-            set "acc_login_!count!=%%X"
-            set "acc_sess_!count!=%%Y"
-        )
+for /f "tokens=3*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul ^| findstr /I "SavedValue_"') do (
+    set /a count+=1
+    set "raw_data=%%A %%B"
+    if "%%B"=="" set "raw_data=%%A"
+    
+    for /f "tokens=1,2* delims=," %%X in ("!raw_data!") do (
+        echo   !count!. %%X ^(Note: %%Z^)
+        set "acc_login_!count!=%%X"
+        set "acc_sess_!count!=%%Y"
     )
 )
 
@@ -173,10 +170,15 @@ if not defined sel_login (
     goto switch_token
 )
 
+:: Запись токена и логина в реестр EXBO
 reg add "%REGISTRY_PATH_EXBO%" /v EXBO_LOGIN /t REG_SZ /d "!sel_login!" /f >nul
 reg add "%REGISTRY_PATH_EXBO%" /v EXBO_SESSION /t REG_SZ /d "!sel_sess!" /f >nul
 
-call :PrintGreen "Token successfully injected! Active account: !sel_login!"
+:: Автоматическое включение авто-авторизации
+reg add "%REGISTRY_PATH_EXBO%" /v EXBO_AUTO_AUTH /t REG_SZ /d "true" /f >nul
+
+call :PrintGreen "Token successfully injected! EXBO_AUTO_AUTH set to true."
+call :PrintGreen "Active account: !sel_login!"
 pause
 goto menu
 
@@ -187,14 +189,13 @@ echo :: Select account to DELETE:
 echo.
 
 set "count=0"
-for /f "tokens=1,2*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul') do (
-    set "vname=%%A"
-    if "!vname:~0,11!"=="SavedValue_" (
-        set /a count+=1
-        set "del_raw_!count!=%%C"
-        for /f "tokens=1,2* delims=," %%X in ("%%C") do (
-            echo   !count!. %%X
-        )
+for /f "tokens=3*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul ^| findstr /I "SavedValue_"') do (
+    set /a count+=1
+    set "raw_data=%%A %%B"
+    if "%%B"=="" set "raw_data=%%A"
+    set "del_raw_!count!=!raw_data!"
+    for /f "tokens=1 delims=," %%X in ("!raw_data!") do (
+        echo   !count!. %%X
     )
 )
 
@@ -217,13 +218,8 @@ if not defined to_delete (
     goto delete_token
 )
 
-set "idx=0"
-for /f "tokens=1,2*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul') do (
-    set "vname=%%A"
-    if "!vname:~0,11!"=="SavedValue_" (
-        reg delete "%REGISTRY_PATH_ESAVEEX%" /v "%%A" /f >nul
-    )
-)
+reg delete "%REGISTRY_PATH_ESAVEEX%" /f >nul 2>&1
+reg add "%REGISTRY_PATH_ESAVEEX%" /f >nul 2>&1
 
 set "new_idx=0"
 for /l %%I in (1,1,!count!) do (
@@ -258,17 +254,15 @@ echo :: Select account to edit note:
 echo.
 
 set "count=0"
-for /f "tokens=1,2*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul') do (
+for /f "tokens=1,2*" %%A in ('reg query "%REGISTRY_PATH_ESAVEEX%" 2^>nul ^| findstr /I "SavedValue_"') do (
     set "vname=%%A"
-    if "!vname:~0,11!"=="SavedValue_" (
-        set /a count+=1
-        set "raw_data=%%C"
-        set "val_name_!count!=%%A"
-        for /f "tokens=1,2* delims=," %%X in ("!raw_data!") do (
-            echo   !count!. %%X ^(Current note: %%Z^)
-            set "acc_login_!count!=%%X"
-            set "acc_sess_!count!=%%Y"
-        )
+    set /a count+=1
+    set "raw_data=%%C"
+    set "val_name_!count!=%%A"
+    for /f "tokens=1,2* delims=," %%X in ("!raw_data!") do (
+        echo   !count!. %%X ^(Current note: %%Z^)
+        set "acc_login_!count!=%%X"
+        set "acc_sess_!count!=%%Y"
     )
 )
 
